@@ -383,7 +383,7 @@ export default function ScamScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.paper },
-  scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 40 },
+  scroll: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 152 },
   hero: { alignItems: 'center', paddingVertical: 12 },
   shield: {
     width: 104,

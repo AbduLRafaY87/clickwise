@@ -35,20 +35,20 @@ ClickWise empowers non-technical users to build genuine **digital confidence and
 
 ### 1. 🏦 Interactive Banking Practice Hub
 
-- **Session Expiration Explainer:** Simulates real-time session timeouts and explains in plain language _why_ banks log users out (to protect funds).
-- **Safe OTP & Login Practice:** Interactive sandbox to practice entering 6-digit SMS verification keys without real financial risk.
+- **Session Expiration Explainer:** Walks through a timed-out practice session and explains in plain language _why_ banks log users out (to protect funds).
+- **Safe OTP & Login Practice:** Interactive safety scenarios teach users never to share one-time codes, passwords, or other sign-in details. The lesson does not collect real credentials or codes.
 - **Security Guardrails:** Reassures users and continuously reinforces that official bank staff will _never_ request passwords or OTPs.
 
 ### 2. 📹 Video Call Pre-Flight Diagnostic
 
-- **Permissions Helper:** Visual guide that points directly to device camera and microphone toggles.
-- **Live Audio/Video Test:** Integrated preview box giving instant positive voice confirmation (_"Great! Your mic is working clearly"_).
+- **Call Controls Practice:** A local-only preview lets users practise turning sample microphone and camera controls on and off.
+- **Permission & Sound Guidance:** Scenarios teach users to check trusted app permissions, call audio output, volume, and mute controls. The practice screen does not access device camera or microphone.
 
 ### 3. 📝 Government Portal Form Helper
 
-- **Plain-Language Jargon Translator:** Converts terms like _"Beneficiary CNIC"_ or _"Domicile"_ into simple Urdu/English cards.
-- **Step-by-Step Flow:** Breaks multi-page forms into manageable single questions.
-- **Pre-Submission Review:** Displays a clear review card reassuring the user that no data is submitted until they explicitly approve it.
+- **Plain-Language Jargon Translator:** Teaches terms like _"Beneficiary"_ or _"Domicile"_ through simple Urdu/English explanations.
+- **Step-by-Step Flow:** Uses one-question-at-a-time scenarios and fictional sample fields to practise understanding a form.
+- **Pre-Submission Review:** Explains how to review answers and verify an official service. Sample information stays on the screen and is never submitted.
 
 ### 4. 🛡️ Scam Shield & Visual Inspector (Standout AI Innovation)
 
@@ -145,11 +145,14 @@ Return JSON in the following format:
    ```
 
 3. **Configure Environment Variables:**
-   Create a `.env` file in the root directory:
+   Create a `.env.local` file in the root directory:
 
    ```env
    EXPO_PUBLIC_GEMINI_API_KEY=your_gemini_api_key_here
    ```
+
+   The `EXPO_PUBLIC_` prefix means the key is included in the client app bundle. Use a restricted development key, never commit it, and use a backend proxy for production.
+   Restart Expo after adding or changing the key so the app bundle picks it up.
 
 4. **Run the Automated Architecture Setup (Windows PowerShell / Node):**
 
@@ -185,7 +188,8 @@ To fit the 8-hour hackathon build window without compromising security or usabil
 
 1. **Simulated Banking Environment:** Real banking APIs are strictly simulated to ensure total safety and avoid handling real sensitive financial data.
 2. **Preset Scam Screenshots:** Includes pre-configured real-world scam examples for reliable offline/demo presentation alongside live API uploads.
-3. **Browser Permission Toggles:** Camera/Mic diagnostics simulate OS-level permission popups in the practice hub.
+3. **Video Call Practice Controls:** The microphone and camera switches are local simulations; they do not access device hardware or change operating-system permissions.
+4. **Government Form Practice:** The form walkthrough uses fictional examples only and does not save or submit form data.
 
 ---
 
