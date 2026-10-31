@@ -27,7 +27,8 @@ export class ScamCheckError extends Error {
   }
 }
 
-const MODEL = 'gemini-2.5-flash';
+// gemini-2.5-flash was shut down on 16 Oct 2026 (returns 404).
+const MODEL = 'gemini-3.8-flash';
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
 const TIMEOUT_MS = 30000;
 
@@ -115,10 +116,9 @@ export async function checkScam(input: { text: string; image?: ScamImage | null 
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: 'user', parts }],
     generationConfig: {
-      temperature: 0.2,
       responseMimeType: 'application/json',
       responseSchema: RESPONSE_SCHEMA,
-      thinkingConfig: { thinkingBudget: 0 }, // faster and cheaper; this is a simple classification
+      thinkingConfig: { thinkingLevel: 'low' }, // Gemini 3.x: low | medium | high
     },
   };
 

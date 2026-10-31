@@ -1,3 +1,4 @@
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 import * as ImagePicker from 'expo-image-picker';
 import { useState } from 'react';
 import {
@@ -17,6 +18,11 @@ import ScrollScreen from '../../components/Scrollscreen';
 import { colors, radius, TOUCH } from '../../components/theme';
 import { useLanguage } from '../../context/LanguageContext';
 import { getScreenGuide, GuideError, GuideErrorCode, GuideResult, GuideStep } from '../../services/screenGuide';
+
+// Phone screenshots can be several MB. Shrinking them first makes the upload
+// much faster and far less likely to drop on mobile data, and the buttons
+// stay perfectly readable at this size.
+const MAX_WIDTH = 1000;
 
 type Shot = { uri: string; base64: string; mimeType: string; width: number; height: number };
 
@@ -56,15 +62,28 @@ export default function GuideScreen() {
           'جیمنائی سیٹ اپ نہیں ہے۔ روٹ کی .env.local فائل میں EXPO_PUBLIC_GEMINI_API_KEY شامل کریں، پھر ایکسپو دوبارہ شروع کریں۔'
         );
       case 'NETWORK':
-        return t('No internet connection. Please check it and try again.', 'انٹرنیٹ نہیں ہے۔ کنکشن چیک کر کے دوبارہ کوشش کریں۔');
+        return t(
+          'Could not reach the AI service. Check your internet connection and try again.',
+          'اے آئی سروس تک رسائی نہیں ہو سکی۔ انٹرنیٹ چیک کر کے دوبارہ کوشش کریں۔'
+        );
       case 'TIMEOUT':
         return t('This took too long. Please try again.', 'اس میں بہت وقت لگ گیا۔ دوبارہ کوشش کریں۔');
       case 'RATE_LIMIT':
         return t('Too many requests right now. Wait a minute and try again.', 'اس وقت بہت زیادہ درخواستیں ہیں۔ ایک منٹ رک کر دوبارہ کوشش کریں۔');
-      case 'API':
+      case 'MODEL_GONE':
+        return t(
+          'The AI model this app uses has been retired by Google. The app needs a small update. Please tell the app owner.',
+          'جو اے آئی ماڈل یہ ایپ استعمال کرتی ہے اسے گوگل نے بند کر دیا ہے۔ ایپ کو چھوٹی اپ ڈیٹ چاہیے۔ براہِ کرم ایپ کے مالک کو بتائیں۔'
+        );
+      case 'BAD_KEY':
         return t(
           'Google rejected the request. Check that the Gemini API key is valid and Gemini API access is enabled.',
           'گوگل نے درخواست قبول نہیں کی۔ جیمنائی API key کی درستگی اور API رسائی چیک کریں۔'
+        );
+      case 'API':
+        return t(
+          'Gemini had a problem. Please try again in a moment.',
+          'جیمنائی میں مسئلہ آیا۔ تھوڑی دیر بعد دوبارہ کوشش کریں۔'
         );
       case 'BAD_RESPONSE':
         return t(
@@ -85,19 +104,36 @@ export default function GuideScreen() {
   const handleUpload = async () => {
     const picked = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
-      quality: 0.7, // text on buttons must stay readable for the AI
-      base64: true,
+      quality: 1, // we compress once ourselves below
     });
     if (picked.canceled) return;
     const a = picked.assets[0];
-    if (!a?.base64 || !a.width || !a.height) {
+    let small: Shot | null = null;
+    if (a?.uri && a.width && a.height) {
+      try {
+        const ctx = ImageManipulator.manipulate(a.uri);
+        if (a.width > MAX_WIDTH) ctx.resize({ width: MAX_WIDTH });
+        const ref = await ctx.renderAsync();
+        const out = await ref.saveAsync({
+          format: SaveFormat.JPEG,
+          compress: 0.7,
+          base64: true,
+        });
+        if (out.base64) {
+          small = { uri: out.uri, base64: out.base64, mimeType: 'image/jpeg', width: out.width, height: out.height };
+        }
+      } catch (e) {
+        if (__DEV__) console.warn('[ScreenGuide] could not shrink screenshot', e);
+      }
+    }
+    if (!small) {
       Alert.alert(
         t('Could not open the picture', 'تصویر نہیں کھل سکی'),
         t('Please choose another screenshot.', 'براہِ کرم کوئی دوسرا اسکرین شاٹ چنیں۔')
       );
       return;
     }
-    setShot({ uri: a.uri, base64: a.base64, mimeType: a.mimeType ?? 'image/jpeg', width: a.width, height: a.height });
+    setShot(small);
     reset();
   };
 

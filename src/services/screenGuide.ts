@@ -1,5 +1,5 @@
 // Screen Guide: the user shares a screenshot and says what they want to do.
-// Gemini 2.5 Flash answers with ordered steps, each pointing at a box on the
+// Gemini answers with ordered steps, each pointing at a box on the
 // screenshot, so the app can draw numbered markers on top of the picture.
 //
 // SECURITY NOTE: EXPO_PUBLIC_* variables are bundled into the app (same as
@@ -14,7 +14,7 @@ export type Box2D = [number, number, number, number];
 export type GuideStep = {
   /** Where to tap, or null when nothing on this screen matches (e.g. "scroll down"). */
   box: Box2D | null;
-  action: 'tap' | 'type' | 'scroll' | 'wait' | 'other';
+  action: "tap" | "type" | "scroll" | "wait" | "other";
   instruction: Bilingual;
   /** Short name of the thing to tap, as written on screen (e.g. "Send"). */
   label: string;
@@ -31,20 +31,34 @@ export type GuideResult = {
 
 export type GuideImage = { base64: string; mimeType: string };
 
-export type GuideErrorCode = 'NO_KEY' | 'NETWORK' | 'TIMEOUT' | 'RATE_LIMIT' | 'API' | 'BAD_RESPONSE';
+export type GuideErrorCode =
+  | "NO_KEY"
+  | "BAD_KEY" // key missing permission, invalid, or restricted (HTTP 400/401/403)
+  | "MODEL_GONE" // model id retired or wrong (HTTP 404)
+  | "NETWORK"
+  | "TIMEOUT"
+  | "RATE_LIMIT"
+  | "API"
+  | "BAD_RESPONSE";
 
 export class GuideError extends Error {
   code: GuideErrorCode;
   constructor(code: GuideErrorCode, message: string) {
     super(message);
-    this.name = 'GuideError';
+    this.name = "GuideError";
     this.code = code;
   }
 }
 
-const MODEL = 'gemini-2.5-flash';
+// gemini-2.5-flash was shut down on 16 Oct 2026 and now returns 404.
+// Google retires Flash models every few months, so keep this in ONE place and
+// check https://ai.google.dev/gemini-api/docs/deprecations when calls start failing.
+const MODEL = "gemini-3.8-flash";
+// Gemini 3.x uses thinkingLevel (low | medium | high) instead of thinkingBudget.
+// Raise to 'medium' if the markers land in the wrong place.
+const THINKING_LEVEL = "low";
 const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
-const TIMEOUT_MS = 40000;
+const TIMEOUT_MS = 45000;
 const MAX_STEPS = 6;
 
 const SYSTEM_PROMPT = `You are the Screen Guide of ClickWise, an app that helps older and non-technical adults in Pakistan use their phones with confidence.
@@ -62,38 +76,41 @@ Rules:
 - Never ask for personal information. Do not repeat private details you see (numbers, balances, names) in your answer.`;
 
 const bilingualSchema = {
-  type: 'OBJECT',
-  properties: { en: { type: 'STRING' }, ur: { type: 'STRING' } },
-  required: ['en', 'ur'],
+  type: "OBJECT",
+  properties: { en: { type: "STRING" }, ur: { type: "STRING" } },
+  required: ["en", "ur"],
 };
 
 const RESPONSE_SCHEMA = {
-  type: 'OBJECT',
+  type: "OBJECT",
   properties: {
-    possible: { type: 'BOOLEAN' },
+    possible: { type: "BOOLEAN" },
     summary: bilingualSchema,
     warning: { ...bilingualSchema, nullable: true },
     steps: {
-      type: 'ARRAY',
+      type: "ARRAY",
       items: {
-        type: 'OBJECT',
+        type: "OBJECT",
         properties: {
-          box: { type: 'ARRAY', items: { type: 'INTEGER' }, nullable: true },
-          action: { type: 'STRING', enum: ['tap', 'type', 'scroll', 'wait', 'other'] },
-          label: { type: 'STRING' },
+          box: { type: "ARRAY", items: { type: "INTEGER" }, nullable: true },
+          action: {
+            type: "STRING",
+            enum: ["tap", "type", "scroll", "wait", "other"],
+          },
+          label: { type: "STRING" },
           instruction: bilingualSchema,
         },
-        required: ['box', 'action', 'label', 'instruction'],
+        required: ["box", "action", "label", "instruction"],
       },
     },
   },
-  required: ['possible', 'summary', 'steps'],
+  required: ["possible", "summary", "steps"],
 };
 
 const isBilingual = (v: unknown): v is Bilingual =>
   !!v &&
-  typeof (v as Bilingual).en === 'string' &&
-  typeof (v as Bilingual).ur === 'string' &&
+  typeof (v as Bilingual).en === "string" &&
+  typeof (v as Bilingual).ur === "string" &&
   (v as Bilingual).en.trim().length > 0 &&
   (v as Bilingual).ur.trim().length > 0;
 
@@ -101,7 +118,11 @@ const clamp = (n: number) => Math.min(1000, Math.max(0, Math.round(n)));
 
 /** Returns a sane box or null. Gemini occasionally returns reversed or tiny boxes. */
 export function normaliseBox(raw: unknown): Box2D | null {
-  if (!Array.isArray(raw) || raw.length !== 4 || raw.some((n) => typeof n !== 'number' || !isFinite(n))) {
+  if (
+    !Array.isArray(raw) ||
+    raw.length !== 4 ||
+    raw.some((n) => typeof n !== "number" || !isFinite(n))
+  ) {
     return null;
   }
   let [ymin, xmin, ymax, xmax] = raw.map(clamp);
@@ -119,25 +140,29 @@ export function parseGuideResult(raw: string): GuideResult {
   try {
     data = JSON.parse(raw);
   } catch {
-    throw new GuideError('BAD_RESPONSE', 'Response was not valid JSON');
+    throw new GuideError("BAD_RESPONSE", "Response was not valid JSON");
   }
-  if (typeof data?.possible !== 'boolean' || !isBilingual(data?.summary) || !Array.isArray(data?.steps)) {
-    throw new GuideError('BAD_RESPONSE', 'Response had an unexpected shape');
+  if (
+    typeof data?.possible !== "boolean" ||
+    !isBilingual(data?.summary) ||
+    !Array.isArray(data?.steps)
+  ) {
+    throw new GuideError("BAD_RESPONSE", "Response had an unexpected shape");
   }
 
-  const actions = ['tap', 'type', 'scroll', 'wait', 'other'];
+  const actions = ["tap", "type", "scroll", "wait", "other"];
   const steps: GuideStep[] = data.steps
     .filter((s: any) => isBilingual(s?.instruction))
     .slice(0, MAX_STEPS)
     .map((s: any) => ({
       box: normaliseBox(s.box),
-      action: actions.includes(s.action) ? s.action : 'other',
+      action: actions.includes(s.action) ? s.action : "other",
       instruction: s.instruction,
-      label: typeof s.label === 'string' ? s.label : '',
+      label: typeof s.label === "string" ? s.label : "",
     }));
 
   if (data.possible && steps.length === 0) {
-    throw new GuideError('BAD_RESPONSE', 'No steps were returned');
+    throw new GuideError("BAD_RESPONSE", "No steps were returned");
   }
 
   return {
@@ -148,59 +173,107 @@ export function parseGuideResult(raw: string): GuideResult {
   };
 }
 
-export async function getScreenGuide(input: { goal: string; image: GuideImage }): Promise<GuideResult> {
+export async function getScreenGuide(input: {
+  goal: string;
+  image: GuideImage;
+}): Promise<GuideResult> {
   const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
-  if (!apiKey) throw new GuideError('NO_KEY', 'EXPO_PUBLIC_GEMINI_API_KEY is not set');
+  if (!apiKey)
+    throw new GuideError("NO_KEY", "EXPO_PUBLIC_GEMINI_API_KEY is not set");
 
   const goal = input.goal.trim().slice(0, 500);
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [
       {
-        role: 'user',
+        role: "user",
         parts: [
-          { inlineData: { mimeType: input.image.mimeType, data: input.image.base64 } },
-          { text: `What I want to do:\n<goal>\n${goal}\n</goal>\nShow me where to tap on this screenshot.` },
+          {
+            inlineData: {
+              mimeType: input.image.mimeType,
+              data: input.image.base64,
+            },
+          },
+          {
+            text: `What I want to do:\n<goal>\n${goal}\n</goal>\nShow me where to tap on this screenshot.`,
+          },
         ],
       },
     ],
     generationConfig: {
-      temperature: 0.2,
-      responseMimeType: 'application/json',
+      responseMimeType: "application/json",
       responseSchema: RESPONSE_SCHEMA,
-      thinkingConfig: { thinkingBudget: 0 }, // faster; raise this if marker positions are off
+      thinkingConfig: { thinkingLevel: THINKING_LEVEL },
     },
   };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-
-  let response: Response;
-  try {
-    response = await fetch(ENDPOINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-      body: JSON.stringify(body),
-      signal: controller.signal,
-    });
-  } catch (e: any) {
-    throw e?.name === 'AbortError'
-      ? new GuideError('TIMEOUT', 'The request took too long')
-      : new GuideError('NETWORK', 'Could not reach the Gemini API');
-  } finally {
-    clearTimeout(timer);
+  const payload = JSON.stringify(body);
+  if (__DEV__) {
+    console.log(
+      `[ScreenGuide] sending ${Math.round(payload.length / 1024)} KB to ${MODEL}`,
+    );
   }
 
-  if (response.status === 429) throw new GuideError('RATE_LIMIT', 'Too many requests');
+  // One automatic retry for dropped connections (common on mobile data).
+  let response: Response | null = null;
+  for (let attempt = 1; attempt <= 2 && !response; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    try {
+      response = await fetch(ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-goog-api-key": apiKey,
+        },
+        body: payload,
+        signal: controller.signal,
+      });
+    } catch (e: any) {
+      if (__DEV__)
+        console.warn(
+          `[ScreenGuide] fetch failed (attempt ${attempt}):`,
+          e?.name,
+          e?.message,
+        );
+      if (e?.name === "AbortError")
+        throw new GuideError("TIMEOUT", "The request took too long");
+      if (attempt === 2)
+        throw new GuideError(
+          "NETWORK",
+          `Could not reach the Gemini API: ${e?.message ?? e}`,
+        );
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  if (!response)
+    throw new GuideError("NETWORK", "Could not reach the Gemini API");
+
+  if (response.status === 429)
+    throw new GuideError("RATE_LIMIT", "Too many requests");
   if (!response.ok) {
-    const detail = await response.text().catch(() => '');
-    throw new GuideError('API', `Gemini API error ${response.status}: ${detail.slice(0, 300)}`);
+    const detail = await response.text().catch(() => "");
+    const message = `Gemini API error ${response.status} (${MODEL}): ${detail.slice(0, 300)}`;
+    if (__DEV__) console.warn("[ScreenGuide]", message); // shows the real reason in the Expo terminal
+    if (response.status === 404) throw new GuideError("MODEL_GONE", message);
+    if (
+      response.status === 401 ||
+      response.status === 403 ||
+      response.status === 400
+    ) {
+      throw new GuideError("BAD_KEY", message);
+    }
+    throw new GuideError("API", message);
   }
 
   const json: any = await response.json().catch(() => null);
   const raw: unknown = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof raw !== 'string') {
-    throw new GuideError('BAD_RESPONSE', 'Gemini returned no text (it may have been blocked)');
+  if (typeof raw !== "string") {
+    throw new GuideError(
+      "BAD_RESPONSE",
+      "Gemini returned no text (it may have been blocked)",
+    );
   }
   return parseGuideResult(raw);
 }

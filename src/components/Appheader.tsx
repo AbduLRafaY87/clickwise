@@ -33,12 +33,14 @@ export default function AppHeader() {
             </View>
           </View>
           <View style={styles.brandCopy}>
-            <Text style={styles.brandText}>ClickWise</Text>
+            <Text style={styles.brandText} numberOfLines={1}>
+              ClickWise
+            </Text>
             {/* Plain Text keeps the brand and switch in a stable position in Urdu. */}
             <View style={styles.tagRow}>
               <View style={styles.dot} />
               <Text style={styles.tagline} numberOfLines={1}>
-                {t('Learn safely, at your pace', 'اپنی رفتار سے محفوظ طریقے سے سیکھیں')}
+                {t('Learn safely', 'محفوظ سیکھیں')}
               </Text>
             </View>
           </View>
@@ -74,13 +76,13 @@ const styles = StyleSheet.create({
     flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
   },
   mark: {
-    width: 50,
-    height: 50,
+    width: 44,
+    height: 44,
     padding: 3,
-    borderRadius: 17,
+    borderRadius: 15,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.tealSoft,
@@ -95,15 +97,16 @@ const styles = StyleSheet.create({
   },
   markText: {
     color: '#FFFFFF',
-    fontSize: 23,
+    fontSize: 21,
     fontWeight: '900',
   },
   brandCopy: {
-    flexShrink: 1,
+    flexShrink: 0,
   },
   brandText: {
+    flexShrink: 0, // the name must never wrap or shrink
     color: colors.ink,
-    fontSize: 21,
+    fontSize: 20,
     fontWeight: '900',
     letterSpacing: 0.2,
     lineHeight: 25,

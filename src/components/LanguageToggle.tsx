@@ -49,18 +49,18 @@ const styles = StyleSheet.create({
     borderColor: colors.line,
   },
   option: {
-    minWidth: 76,
+    minWidth: 64,
     minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 14,
+    paddingHorizontal: 10,
     borderRadius: radius.pill,
   },
   optionActive: {
     backgroundColor: colors.teal,
   },
   label: {
-    fontSize: 17,
+    fontSize: 16,
     fontWeight: '700',
     color: colors.ink,
   },
