@@ -75,6 +75,11 @@ export default function GuideScreen() {
           'The AI model this app uses has been retired by Google. The app needs a small update. Please tell the app owner.',
           'جو اے آئی ماڈل یہ ایپ استعمال کرتی ہے اسے گوگل نے بند کر دیا ہے۔ ایپ کو چھوٹی اپ ڈیٹ چاہیے۔ براہِ کرم ایپ کے مالک کو بتائیں۔'
         );
+      case 'BUSY':
+        return t(
+          'The AI is very busy right now. Please wait a minute and try again.',
+          'اے آئی پر اس وقت بہت رش ہے۔ ایک منٹ رک کر دوبارہ کوشش کریں۔'
+        );
       case 'BAD_KEY':
         return t(
           'Google rejected the request. Check that the Gemini API key is valid and Gemini API access is enabled.',

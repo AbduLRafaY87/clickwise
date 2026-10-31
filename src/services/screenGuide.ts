@@ -3,7 +3,7 @@
 // screenshot, so the app can draw numbered markers on top of the picture.
 //
 // SECURITY NOTE: EXPO_PUBLIC_* variables are bundled into the app (same as
-// Scamcheck.tsx). Use a restricted key for the demo; for a real release, send
+// scamCheck.ts). Use a restricted key for the demo; for a real release, send
 // the request through your own backend.
 
 export type Bilingual = { en: string; ur: string };
@@ -35,6 +35,7 @@ export type GuideErrorCode =
   | "NO_KEY"
   | "BAD_KEY" // key missing permission, invalid, or restricted (HTTP 400/401/403)
   | "MODEL_GONE" // model id retired or wrong (HTTP 404)
+  | "BUSY" // Google overloaded (HTTP 5xx): temporary, try again
   | "NETWORK"
   | "TIMEOUT"
   | "RATE_LIMIT"
@@ -51,13 +52,18 @@ export class GuideError extends Error {
 }
 
 // gemini-2.5-flash was shut down on 16 Oct 2026 and now returns 404.
-// Google retires Flash models every few months, so keep this in ONE place and
+// Google retires Flash models every few months, so keep the list in ONE place and
 // check https://ai.google.dev/gemini-api/docs/deprecations when calls start failing.
-const MODEL = "gemini-3.8-flash";
+// Models are tried in order: if the first is overloaded (503) or gone (404) we
+// automatically fall back to the next one.
+const MODELS = ["gemini-3.8-flash", "gemini-3.6-flash"];
 // Gemini 3.x uses thinkingLevel (low | medium | high) instead of thinkingBudget.
 // Raise to 'medium' if the markers land in the wrong place.
 const THINKING_LEVEL = "low";
-const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent`;
+const endpointFor = (model: string) =>
+  `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`;
+const RETRY_DELAY_MS = 1500;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const TIMEOUT_MS = 45000;
 const MAX_STEPS = 6;
 
@@ -210,70 +216,85 @@ export async function getScreenGuide(input: {
   const payload = JSON.stringify(body);
   if (__DEV__) {
     console.log(
-      `[ScreenGuide] sending ${Math.round(payload.length / 1024)} KB to ${MODEL}`,
+      `[ScreenGuide] sending ${Math.round(payload.length / 1024)} KB`,
     );
   }
 
-  // One automatic retry for dropped connections (common on mobile data).
-  let response: Response | null = null;
-  for (let attempt = 1; attempt <= 2 && !response; attempt++) {
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
-    try {
-      response = await fetch(ENDPOINT, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
-        body: payload,
-        signal: controller.signal,
-      });
-    } catch (e: any) {
-      if (__DEV__)
-        console.warn(
-          `[ScreenGuide] fetch failed (attempt ${attempt}):`,
-          e?.name,
-          e?.message,
-        );
-      if (e?.name === "AbortError")
-        throw new GuideError("TIMEOUT", "The request took too long");
-      if (attempt === 2)
-        throw new GuideError(
+  let lastError: GuideError | null = null;
+
+  for (const model of MODELS) {
+    // Two tries per model; a short pause helps when Google is briefly overloaded.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+      let response: Response;
+      try {
+        response = await fetch(endpointFor(model), {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-goog-api-key": apiKey,
+          },
+          body: payload,
+          signal: controller.signal,
+        });
+      } catch (e: any) {
+        if (__DEV__) {
+          console.warn(
+            `[ScreenGuide] ${model} fetch failed (try ${attempt}):`,
+            e?.name,
+            e?.message,
+          );
+        }
+        if (e?.name === "AbortError") {
+          throw new GuideError("TIMEOUT", "The request took too long");
+        }
+        lastError = new GuideError(
           "NETWORK",
           `Could not reach the Gemini API: ${e?.message ?? e}`,
         );
-    } finally {
-      clearTimeout(timer);
+        if (attempt < 2) await sleep(RETRY_DELAY_MS);
+        continue;
+      } finally {
+        clearTimeout(timer);
+      }
+
+      if (response.ok) {
+        const json: any = await response.json().catch(() => null);
+        const raw: unknown = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (typeof raw !== "string") {
+          throw new GuideError(
+            "BAD_RESPONSE",
+            "Gemini returned no text (it may have been blocked)",
+          );
+        }
+        return parseGuideResult(raw);
+      }
+
+      const status = response.status;
+      const detail = await response.text().catch(() => "");
+      const message = `Gemini API error ${status} (${model}): ${detail.slice(0, 300)}`;
+      if (__DEV__) console.warn("[ScreenGuide]", message); // the real reason shows in the Expo terminal
+
+      if (status === 404) {
+        lastError = new GuideError("MODEL_GONE", message);
+        break; // this model is gone: go straight to the next one
+      }
+      if (status === 400 || status === 401 || status === 403) {
+        throw new GuideError("BAD_KEY", message); // another model will not fix a key problem
+      }
+      if (status === 429) {
+        lastError = new GuideError("RATE_LIMIT", message);
+      } else if (status >= 500) {
+        lastError = new GuideError("BUSY", message);
+      } else {
+        throw new GuideError("API", message);
+      }
+      if (attempt < 2) await sleep(RETRY_DELAY_MS);
     }
   }
-  if (!response)
-    throw new GuideError("NETWORK", "Could not reach the Gemini API");
 
-  if (response.status === 429)
-    throw new GuideError("RATE_LIMIT", "Too many requests");
-  if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    const message = `Gemini API error ${response.status} (${MODEL}): ${detail.slice(0, 300)}`;
-    if (__DEV__) console.warn("[ScreenGuide]", message); // shows the real reason in the Expo terminal
-    if (response.status === 404) throw new GuideError("MODEL_GONE", message);
-    if (
-      response.status === 401 ||
-      response.status === 403 ||
-      response.status === 400
-    ) {
-      throw new GuideError("BAD_KEY", message);
-    }
-    throw new GuideError("API", message);
-  }
-
-  const json: any = await response.json().catch(() => null);
-  const raw: unknown = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof raw !== "string") {
-    throw new GuideError(
-      "BAD_RESPONSE",
-      "Gemini returned no text (it may have been blocked)",
-    );
-  }
-  return parseGuideResult(raw);
+  throw (
+    lastError ?? new GuideError("NETWORK", "Could not reach the Gemini API")
+  );
 }
