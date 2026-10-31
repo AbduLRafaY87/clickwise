@@ -1,6 +1,6 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import LanguageToggle from './Languagetoggle';
+import LanguageToggle from './LanguageToggle';
 import { colors } from './theme';
 
 /**
