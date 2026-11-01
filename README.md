@@ -200,4 +200,4 @@ To fit the 8-hour hackathon build window without compromising security or usabil
 
 ---
 
-_Made with ❤️ for Build4Better Hackathon 2026 by Team ClickWise._
+_Made with ❤️ for Build4Better Hackathon 2026 by Team Lynx._
